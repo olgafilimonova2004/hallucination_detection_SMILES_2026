@@ -55,7 +55,7 @@ from splitting import split_data
 
 DATA_FILE     = "./data/dataset.csv"   # path to the dataset CSV
 OUTPUT_FILE   = "results.json"         # where to write the results summary
-BATCH_SIZE    = 4
+BATCH_SIZE    = 1
 USE_GEOMETRIC = False                  # set True to enable geometric feature extraction
 TEST_FILE        = "./data/test.csv"   # competition test set (labels are null)
 PREDICTIONS_FILE = "predictions.csv"   # output file with predicted labels
@@ -225,4 +225,3 @@ if __name__=='__main__':
 
     # ── Predict and save ────────────────────────────────────────────────────
     save_predictions(final_probe, X_test, test_ids, PREDICTIONS_FILE)
-
