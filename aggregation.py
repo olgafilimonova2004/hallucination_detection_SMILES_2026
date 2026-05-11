@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import deque
-from types import SimpleNamespace
 
 import torch
 import torch.nn.functional as F
@@ -150,59 +149,29 @@ class _ForwardWrapper(torch.nn.Module):
         self.tokenizer = tokenizer
 
     def forward(self, *args, **kwargs):
+        kwargs["output_attentions"] = True
         kwargs["output_hidden_states"] = True
         kwargs["return_dict"] = True
         kwargs["use_cache"] = False
+        outputs = self.base_model(*args, **kwargs)
         input_ids = kwargs.get("input_ids")
         attention_mask = kwargs.get("attention_mask")
         if input_ids is None and args:
             input_ids = args[0]
-        if input_ids is None or attention_mask is None:
-            kwargs["output_attentions"] = True
-            return self.base_model(*args, **kwargs)
-        _FEATURE_QUEUE.clear()
-        batch_size, padded_len = input_ids.shape
-        hidden_batches: list[list[torch.Tensor]] | None = None
-        logit_batches: list[torch.Tensor] = []
-        for sample_idx in range(batch_size):
-            seq_len = int(attention_mask[sample_idx].sum().item())
-            sample_ids = input_ids[sample_idx : sample_idx + 1, :seq_len]
-            sample_mask = attention_mask[sample_idx : sample_idx + 1, :seq_len]
-            sample_outputs = self.base_model(
-                input_ids=sample_ids,
-                attention_mask=sample_mask,
-                output_attentions=True,
-                output_hidden_states=True,
-                return_dict=True,
-                use_cache=False,
-            )
-            sample_token_ids = sample_ids[0].detach().cpu()
-            response_span = _response_span(sample_token_ids, self.tokenizer)
-            user_span = _user_span(sample_token_ids, self.tokenizer, response_span[0])
-            hidden_states = [layer[0].detach().to(device="cpu", dtype=torch.float32) for layer in sample_outputs.hidden_states]
-            attentions = [layer[0].detach().to(device="cpu", dtype=torch.float32) for layer in sample_outputs.attentions]
-            logits = sample_outputs.logits[0].detach().to(device="cpu", dtype=torch.float32)
-            icr = _icr_features(hidden_states, attentions, user_span, response_span)
-            llm = _llm_check_features(logits, sample_token_ids, hidden_states, response_span)
-            _FEATURE_QUEUE.append(torch.cat([icr, llm], dim=0))
-            if hidden_batches is None:
-                hidden_batches = [[] for _ in range(len(hidden_states))]
-            for layer_idx, layer_hidden in enumerate(hidden_states):
-                if seq_len < padded_len:
-                    padding = torch.zeros((padded_len - seq_len, layer_hidden.size(-1)), dtype=torch.float32)
-                    layer_hidden = torch.cat([layer_hidden, padding], dim=0)
-                hidden_batches[layer_idx].append(layer_hidden)
-            if seq_len < padded_len:
-                logits = torch.cat([logits, torch.zeros((padded_len - seq_len, logits.size(-1)), dtype=torch.float32)], dim=0)
-            logit_batches.append(logits)
-            del sample_outputs
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        if hidden_batches is None:
-            raise RuntimeError("Empty batch received.")
-        merged_hidden_states = tuple(torch.stack(layer_hidden_list, dim=0) for layer_hidden_list in hidden_batches)
-        merged_logits = torch.stack(logit_batches, dim=0)
-        return SimpleNamespace(hidden_states=merged_hidden_states, logits=merged_logits, attentions=None)
+        if input_ids is not None and attention_mask is not None:
+            _FEATURE_QUEUE.clear()
+            for sample_idx in range(input_ids.size(0)):
+                seq_len = int(attention_mask[sample_idx].sum().item())
+                sample_ids = input_ids[sample_idx, :seq_len].detach().cpu()
+                response_span = _response_span(sample_ids, self.tokenizer)
+                user_span = _user_span(sample_ids, self.tokenizer, response_span[0])
+                hidden_states = [layer[sample_idx, :seq_len].detach().to(device="cpu", dtype=torch.float32) for layer in outputs.hidden_states]
+                attentions = [layer[sample_idx, :, :seq_len, :seq_len].detach().to(device="cpu", dtype=torch.float32) for layer in outputs.attentions]
+                logits = outputs.logits[sample_idx, :seq_len].detach().to(device="cpu", dtype=torch.float32)
+                icr = _icr_features(hidden_states, attentions, user_span, response_span)
+                llm = _llm_check_features(logits, sample_ids, hidden_states, response_span)
+                _FEATURE_QUEUE.append(torch.cat([icr, llm], dim=0))
+        return outputs
 
     def __getattr__(self, name: str):
         try:
