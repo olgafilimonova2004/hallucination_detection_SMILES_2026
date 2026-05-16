@@ -6,7 +6,7 @@ This document is a submission report for the provided hallucination-detection ta
 
 The report should be read from the start with the following framing:
 
-- Final solution: `LLM_check`, adapted from `LLM-Check: Investigating Detection of Hallucinations in Large Language Models`, with best observed accuracy `0.76`.
+- Final solution: `LLM_check`, adapted from `LLM-Check: Investigating Detection of Hallucinations in Large Language Models`, with best observed accuracy `0.78` (avg_mean_accuracy 0.76).
 - Promising solution number 2: a 3-head fusion model (custom architecture) that combines 3 approaches: `LLM_check`, `SAPLMA` from `The Internal State of an LLM Knows When It's Lying`, and `ICR Probe` from `ICR Probe: Tracking Hidden State Dynamics for Reliable Hallucination Detection in LLMs`, with accuracy `0.73`.
 
 Mentioned methods are adapted for the initial task provided.
