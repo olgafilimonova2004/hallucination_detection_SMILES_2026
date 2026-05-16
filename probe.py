@@ -15,6 +15,9 @@ SAPLMA_SLICE = slice(0, 896)
 ICR_SLICE = slice(896, 920)
 LLM_SLICE = slice(920, 947)
 RANDOM_STATE = 42
+PROBE_MODE_LLM_CHECK = "llm_check"
+PROBE_MODE_FUSION = "fusion"
+PROBE_MODES = (PROBE_MODE_LLM_CHECK, PROBE_MODE_FUSION)
 
 
 def _set_seed(seed: int) -> None:
@@ -177,8 +180,11 @@ class _LLMCheckProbe(nn.Module):
 
 
 class HallucinationProbe(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, mode: str = PROBE_MODE_LLM_CHECK) -> None:
         super().__init__()
+        if mode not in PROBE_MODES:
+            raise ValueError(f"Unsupported probe mode: {mode!r}. Expected one of {PROBE_MODES}.")
+        self.mode = mode
         self.meta_model = LogisticRegression(
             penalty="l2",
             C=0.01,
@@ -230,6 +236,13 @@ class HallucinationProbe(nn.Module):
     def fit(self, X: np.ndarray, y: np.ndarray) -> "HallucinationProbe":
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = np.asarray(y, dtype=int)
+        if self.mode == PROBE_MODE_LLM_CHECK:
+            _, X_llm, _ = self._split_features(X_arr)
+            self.llm_model = _LLMCheckProbe(RANDOM_STATE)
+            self.llm_model.fit(X_llm, y_arr)
+            self.icr_model = None
+            self.saplma_model = None
+            return self
         meta_X = self._oof_probabilities(X_arr, y_arr)
         self.meta_model.fit(meta_X, y_arr)
         self.icr_model, self.llm_model, self.saplma_model = self._fit_models(X_arr, y_arr, RANDOM_STATE + 100)
@@ -252,8 +265,13 @@ class HallucinationProbe(nn.Module):
         return (self.predict_proba(X)[:, 1] >= self.threshold).astype(int)
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        if self.mode == PROBE_MODE_LLM_CHECK:
+            if self.llm_model is None:
+                raise RuntimeError("LLM-Check probe is not fitted.")
+            _, X_llm, _ = self._split_features(np.asarray(X, dtype=np.float32))
+            return self.llm_model.predict_proba(X_llm)
         if self.icr_model is None or self.llm_model is None or self.saplma_model is None:
-            raise RuntimeError("Stacking probe is not fitted.")
+            raise RuntimeError("Fusion probe is not fitted.")
         meta_X = self._base_probabilities(np.asarray(X, dtype=np.float32), self.icr_model, self.llm_model, self.saplma_model)
         prob_pos = self.meta_model.predict_proba(meta_X)[:, 1]
         return np.stack([1.0 - prob_pos, prob_pos], axis=1)

@@ -38,18 +38,9 @@ Hallucination Detection in Small Language Models
 
 """
 
+import argparse
 import time
-
-import numpy as np
-import pandas as pd
-import torch
-from tqdm import tqdm
-
-from aggregation import aggregation_and_feature_extraction
-from evaluate import print_summary, run_evaluation, save_predictions, save_results
-from model import MAX_LENGTH, get_model_and_tokenizer
-from probe import HallucinationProbe
-from splitting import split_data
+from functools import partial
 
 # ---------------------------------------------------------------------
 
@@ -63,7 +54,51 @@ PREDICTIONS_FILE = "predictions.csv"   # output file with predicted labels
 assert OUTPUT_FILE == "results.json"
 assert PREDICTIONS_FILE == "predictions.csv"
 # ---------------------------------------------------------------------
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run hallucination detection with the released LLM_check classifier "
+            "or the optional 3-head fusion probe."
+        )
+    )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--llm-check",
+        action="store_true",
+        help="Use the final LLM_check solution (default).",
+    )
+    mode_group.add_argument(
+        "--fusion",
+        action="store_true",
+        help="Use the optional 3-head fusion probe.",
+    )
+    return parser.parse_args()
+
+
+def _select_probe_mode(args: argparse.Namespace) -> str:
+    if args.fusion:
+        return "fusion"
+    return "llm_check"
+
+
 if __name__=='__main__':
+    args = _parse_args()
+    probe_mode = _select_probe_mode(args)
+    probe_label = "LLM_check" if probe_mode == "llm_check" else "fusion"
+
+    import numpy as np
+    import pandas as pd
+    import torch
+    from tqdm import tqdm
+
+    from aggregation import aggregation_and_feature_extraction
+    from evaluate import print_summary, run_evaluation, save_predictions, save_results
+    from model import MAX_LENGTH, get_model_and_tokenizer
+    from probe import HallucinationProbe
+    from splitting import split_data
+
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -75,6 +110,7 @@ if __name__=='__main__':
     print(f"Data         : {DATA_FILE}")
     print(f"Max length   : {MAX_LENGTH} tokens")
     print(f"Geometric feats: {USE_GEOMETRIC}")
+    print(f"Probe mode   : {probe_label}")
 
 
     df = pd.read_csv(DATA_FILE)
@@ -168,7 +204,8 @@ if __name__=='__main__':
         print(f"  Fold {i + 1}: train={len(tr)}  "
             f"val={len(va) if va is not None else 'N/A'}  test={len(te)}")
 
-    fold_results = run_evaluation(splits, X, y, HallucinationProbe)
+    probe_factory = partial(HallucinationProbe, mode=probe_mode)
+    fold_results = run_evaluation(splits, X, y, probe_factory)
     
     print_summary(fold_results, X.shape[1], len(X), extract_time)
     save_results(fold_results, X.shape[1], len(X), extract_time, OUTPUT_FILE)
@@ -220,7 +257,7 @@ if __name__=='__main__':
         np.concatenate([idx_tr, idx_va]) if idx_va is not None else idx_tr
         for idx_tr, idx_va, _ in splits
     ]))
-    final_probe = HallucinationProbe()
+    final_probe = HallucinationProbe(mode=probe_mode)
     final_probe.fit(X[idx_non_test], y[idx_non_test])
 
     # ── Predict and save ────────────────────────────────────────────────────
