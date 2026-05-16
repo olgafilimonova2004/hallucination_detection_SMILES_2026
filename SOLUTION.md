@@ -19,27 +19,10 @@ Mentioned papers were analyzed and some ideas were adapted for the initial task 
 
 ## Reproducibility
 
-This repository now exposes two runnable probe configurations: `--llm-check` or `--fusion`.
-
 ```bash
 pip install -r requirements.txt
 python solution.py --llm-check
 ```
-
-This is the final submitted solution. It runs the `LLM_check` classifier and writes:
-
-```text
-results.json
-predictions.csv
-```
-
-`results.json` stores cross-validation metrics on `data/dataset.csv`. `predictions.csv` stores the final labels for `data/test.csv`.
-
-The repository also includes `ablation_results.json`. It contains the ablation experiments for the `LLM_check` family and the selected `best_config` used to justify the final `LLM_check` design.
-
-Configuration `--fusion` runs the 3-head fusion architecture. It is retained as a promising solution number 2, but it is not the main final solution in this submission.
-
-Plain `python solution.py` defaults to `--llm-check`.
 
 ## Components
 
@@ -56,8 +39,6 @@ Plain `python solution.py` defaults to `--llm-check`.
 - `--llm-check`: use only the 27-dimensional `LLM_check` feature block.
 - `--fusion`: train the 3-head stacked model over SAPLMA, ICR, and `LLM_check`.
 
-The only change applied to `solution.py` is that it now parses `--llm-check` and `--fusion` flags and keeps `LLM_check` as the default path. 
-
 `splitting.py` defines the stratified folds and validation subsets used by the fixed evaluation pipeline. 
 
 `Run_Colab.ipynb` exposes the same switch for Colab execution for using Google GPUs.
@@ -67,7 +48,7 @@ The only change applied to `solution.py` is that it now parses `--llm-check` and
 The final released solution in code is `LLM_check`. It achieved the best accuracy in my experiments:
 
 ```text
-LLM_check accuracy = 0.76
+LLM_check accuracy = 0.78
 ```
 
 The important reason for promoting `LLM_check` to the final solution is that it gives the strongest metric while staying mathematically compact. On a dataset with only 689 labelled examples, this matters. The final classifier uses only 27 features and one logistic regression model, which is easier to regularize than a multi-head neural ensemble.
@@ -330,8 +311,3 @@ The following plots belong to the diagnostic Geometry of Truth experiments and w
 This solution requests hidden states, logits, and attentions from Qwen2.5-0.5B in the same forward pass. That is memory intensive, so `solution.py` keeps `BATCH_SIZE = 1`.
 
 `Run_Colab.ipynb` now exposes both runnable modes:
-
-```text
---llm-check   final released solution
---fusion      promising solution number 2
-```
