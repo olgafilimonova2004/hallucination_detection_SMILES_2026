@@ -21,7 +21,7 @@ Mentioned papers were analyzed and some ideas were adapted for the initial task 
 
 ```bash
 pip install -r requirements.txt
-python solution.py --llm-check
+python solution.py
 ```
 
 ## Components
